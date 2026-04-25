@@ -2,32 +2,41 @@
 # =============================================================================
 # mysqldump_selective.sh
 # Dump a MySQL database, with option to include schema-only for specific tables
+#
+# Usage:
+#   ./mysqldump_selective.sh [OPTIONS]
+#
+# Options:
+#   -h, --host        MySQL host           (default: localhost)
+#   -P, --port        MySQL port           (default: 3306)
+#   -u, --user        MySQL user           (default: root)
+#   -p, --password    MySQL password       (default: prompt)
+#   -d, --database    Database name        (required)
+#   -o, --output      Output file          (default: backup_TIMESTAMP.sql)
+#   -s, --schema-only Tables for schema only, comma-separated (e.g. logs,sessions)
+#   -x, --skip        Tables to skip entirely, comma-separated (e.g. tmp,debug)
+#   --help            Show this help message
+#
+# Examples:
+#   ./mysqldump_selective.sh -d mydb
+#   ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
+#   ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
+#   ./mysqldump_selective.sh -d mydb -o /backups/mydb.sql -p secret
 # =============================================================================
 
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# CONFIGURATION — edit these variables
+# DEFAULTS
 # -----------------------------------------------------------------------------
 DB_HOST="localhost"
 DB_PORT="3306"
 DB_USER="root"
-DB_PASS=""                        # Leave empty to be prompted, or set here
-DB_NAME="mydb"
-OUTPUT_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
-
-# Tables to export schema only (no data)
-SCHEMA_ONLY_TABLES=(
-  "logs"
-  "sessions"
-  "cache"
-)
-
-# Tables to skip entirely (no schema, no data)
-SKIP_TABLES=(
-  "tmp_data"
-  "debug_info"
-)
+DB_PASS=""
+DB_NAME=""
+OUTPUT_FILE=""
+SCHEMA_ONLY_TABLES=()
+SKIP_TABLES=()
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -35,11 +44,67 @@ SKIP_TABLES=(
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-log()    { echo -e "${GREEN}[INFO]${NC}  $*"; }
-warn()   { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-error()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+log()   { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+
+usage() {
+  echo -e "
+${CYAN}Usage:${NC}
+  ./mysqldump_selective.sh [OPTIONS]
+
+${CYAN}Options:${NC}
+  -h, --host         MySQL host           (default: localhost)
+  -P, --port         MySQL port           (default: 3306)
+  -u, --user         MySQL user           (default: root)
+  -p, --password     MySQL password       (default: prompt)
+  -d, --database     Database name        ${RED}(required)${NC}
+  -o, --output       Output file          (default: backup_TIMESTAMP.sql)
+  -s, --schema-only  Tables for schema only, comma-separated
+  -x, --skip         Tables to skip entirely, comma-separated
+      --help         Show this help message
+
+${CYAN}Examples:${NC}
+  ./mysqldump_selective.sh -d mydb
+  ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
+  ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
+  ./mysqldump_selective.sh -d mydb -o /backups/mydb.sql -p secret
+"
+  exit 0
+}
+
+# -----------------------------------------------------------------------------
+# PARSE ARGUMENTS
+# -----------------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--host)        DB_HOST="$2";  shift 2 ;;
+    -P|--port)        DB_PORT="$2";  shift 2 ;;
+    -u|--user)        DB_USER="$2";  shift 2 ;;
+    -p|--password)    DB_PASS="$2";  shift 2 ;;
+    -d|--database)    DB_NAME="$2";  shift 2 ;;
+    -o|--output)      OUTPUT_FILE="$2"; shift 2 ;;
+    -s|--schema-only)
+      IFS=',' read -ra SCHEMA_ONLY_TABLES <<< "$2"
+      shift 2 ;;
+    -x|--skip)
+      IFS=',' read -ra SKIP_TABLES <<< "$2"
+      shift 2 ;;
+    --help)           usage ;;
+    *)                error "Unknown option: $1. Use --help for usage." ;;
+  esac
+done
+
+# -----------------------------------------------------------------------------
+# VALIDATE REQUIRED ARGS
+# -----------------------------------------------------------------------------
+[[ -z "$DB_NAME" ]] && error "Database name is required. Use -d or --database.\nRun --help for usage."
+
+# Set default output file if not provided
+[[ -z "$OUTPUT_FILE" ]] && OUTPUT_FILE="backup_${DB_NAME}_$(date +%Y%m%d_%H%M%S).sql"
 
 # -----------------------------------------------------------------------------
 # BUILD CONNECTION ARGS
@@ -49,25 +114,34 @@ MYSQL_ARGS=(-h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER")
 if [[ -n "$DB_PASS" ]]; then
   MYSQL_ARGS+=(-p"$DB_PASS")
 else
-  # Prompt for password securely (no echo)
-  read -rsp "Enter MySQL password for '$DB_USER': " DB_PASS
+  read -rsp "Enter MySQL password for '$DB_USER'@'$DB_HOST': " DB_PASS
   echo
   MYSQL_ARGS+=(-p"$DB_PASS")
 fi
 
-DUMP_ARGS=("${MYSQL_ARGS[@]}")
+# -----------------------------------------------------------------------------
+# PRINT SUMMARY
+# -----------------------------------------------------------------------------
+echo ""
+log "Configuration:"
+echo "  Host        : $DB_HOST:$DB_PORT"
+echo "  User        : $DB_USER"
+echo "  Database    : $DB_NAME"
+echo "  Output      : $OUTPUT_FILE"
+echo "  Schema-only : ${SCHEMA_ONLY_TABLES[*]:-"(none)"}"
+echo "  Skip        : ${SKIP_TABLES[*]:-"(none)"}"
+echo ""
 
 # -----------------------------------------------------------------------------
 # VALIDATE CONNECTION
 # -----------------------------------------------------------------------------
 log "Testing database connection..."
 mysql "${MYSQL_ARGS[@]}" -e "USE $DB_NAME;" 2>/dev/null \
-  || error "Cannot connect to database '$DB_NAME'. Check your credentials."
+  || error "Cannot connect to database '$DB_NAME'. Check your credentials and host."
 log "Connection OK."
 
 # -----------------------------------------------------------------------------
 # BUILD --ignore-table FLAGS
-# Combine both skip + schema-only tables for the main dump pass
 # -----------------------------------------------------------------------------
 IGNORE_FLAGS=()
 
@@ -80,10 +154,10 @@ for tbl in "${SKIP_TABLES[@]}"; do
 done
 
 # -----------------------------------------------------------------------------
-# PASS 1: Full dump (schema + data) excluding ignored tables
+# PASS 1: Full dump (schema + data), excluding ignored tables
 # -----------------------------------------------------------------------------
-log "Pass 1: Dumping full database (excluding ignored tables)..."
-mysqldump "${DUMP_ARGS[@]}" \
+log "Pass 1: Dumping full database (schema + data)..."
+mysqldump "${MYSQL_ARGS[@]}" \
   --single-transaction \
   --routines \
   --triggers \
@@ -99,29 +173,22 @@ log "Pass 1 complete."
 # -----------------------------------------------------------------------------
 if [[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]]; then
   log "Pass 2: Dumping schema-only for: ${SCHEMA_ONLY_TABLES[*]}..."
-
-  mysqldump "${DUMP_ARGS[@]}" \
+  mysqldump "${MYSQL_ARGS[@]}" \
     --no-data \
     --single-transaction \
     "$DB_NAME" \
     "${SCHEMA_ONLY_TABLES[@]}" \
     >> "$OUTPUT_FILE"
-
   log "Pass 2 complete."
 else
-  warn "No schema-only tables defined. Skipping Pass 2."
+  warn "No schema-only tables specified. Skipping Pass 2."
 fi
 
 # -----------------------------------------------------------------------------
 # DONE
 # -----------------------------------------------------------------------------
 SIZE=$(du -sh "$OUTPUT_FILE" | cut -f1)
-log "Dump saved to: $OUTPUT_FILE ($SIZE)"
-
-if [[ ${#SKIP_TABLES[@]} -gt 0 ]]; then
-  warn "Fully skipped tables (no schema, no data): ${SKIP_TABLES[*]}"
-fi
-
-if [[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]]; then
-  warn "Schema-only tables (no data exported): ${SCHEMA_ONLY_TABLES[*]}"
-fi
+echo ""
+log "Done! Dump saved to: ${CYAN}$OUTPUT_FILE${NC} ($SIZE)"
+[[ ${#SKIP_TABLES[@]}        -gt 0 ]] && warn "Fully skipped (no schema, no data): ${SKIP_TABLES[*]}"
+[[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]] && warn "Schema-only exported (no data):     ${SCHEMA_ONLY_TABLES[*]}"
