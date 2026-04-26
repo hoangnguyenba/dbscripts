@@ -294,9 +294,15 @@ fi
 # -----------------------------------------------------------------------------
 if [[ "$ZIP" == true ]]; then
   log "Compressing with gzip..."
-  gzip -c "$TEMP_SQL" > "$LOCAL_OUTPUT"
-  rm -f "$TEMP_SQL"
+  # Derive the inner .sql filename by stripping .gz from the output filename
+  SQL_FILENAME="${OUTPUT_FILENAME%.gz}"
+  TEMP_NAMED="$(dirname "$TEMP_SQL")/$SQL_FILENAME"
+  mv "$TEMP_SQL" "$TEMP_NAMED"
+  mkdir -p "$(dirname "$LOCAL_OUTPUT")"
+  gzip -c "$TEMP_NAMED" > "$LOCAL_OUTPUT"
+  rm -f "$TEMP_NAMED"
 else
+  mkdir -p "$(dirname "$LOCAL_OUTPUT")"
   mv "$TEMP_SQL" "$LOCAL_OUTPUT"
 fi
 

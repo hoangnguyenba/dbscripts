@@ -15,20 +15,28 @@
 # → s3://my-bucket/backups/mydb.sql.gz
 
 
-# commerce
+# Local plain SQL
+./dbimp.sh -d mydb -i /backups/mydb_20260426.sql
 
+# Local compressed
+./dbimp.sh -d mydb -i /backups/mydb_20260426.sql.gz
+
+# S3 plain SQL
+./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
+
+# S3 compressed (download + decompress + import, fully automatic)
+./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
+
+# import
 ```sh
-./mysqldump_selective.sh \
+./dbexp.sh \
   -h 127.0.0.1 \
-  -P 43306 \
+  -P 3313 \
   -u root \
-  -p example \
-  -d commercedb \
-  -o ./backups/commercedb.sql \
-  -s sync_requests,sync_request_jobs \
-  -x postal_delivery_options
+  -p test \
+  -d testdb5 \
+  -i ./backups/contentdb_20260426_171540.sql.gz
 ```
-
 
 # contentdb
 
