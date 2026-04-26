@@ -62,6 +62,7 @@ Only read by `dbimp`:
 | Key | Maps to | Description |
 |---|---|---|
 | `DB_IMP_INPUT` | `-i` | Input file path (local or s3://) |
+| `DB_IMP_CREATE_DB` | `-c` | Set to `true` to auto-create the database |
 
 ### Example `.env`
 
@@ -241,6 +242,7 @@ When the destination is an S3 path, the file is dumped locally to a temp file fi
 | `-p` | `--password` | MySQL password (prompted if omitted) | — |
 | `-d` | `--database` | Target database name | **(required)** |
 | `-i` | `--input` | Input file — local path or `s3://bucket/path/file.sql[.gz]` | **(required)** |
+| `-c` | `--create-db` | Create the database if it doesn't exist | — |
 
 ### Auto-detection
 
@@ -263,6 +265,9 @@ Temp files are always cleaned up on exit, even if the script fails.
 # Local compressed
 ./dbimp.sh -d mydb -i /backups/mydb_20260426.sql.gz
 
+# Auto-create database if it doesn't exist
+./dbimp.sh -d newdb -i /backups/mydb_20260426.sql.gz -c
+
 # From S3 (plain)
 ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
 
@@ -276,6 +281,7 @@ Temp files are always cleaned up on exit, even if the script fails.
   -u root \
   -p secret \
   -d testdb \
+  -c \
   -i ./backups/contentdb_20260426_171540.sql.gz
 ```
 

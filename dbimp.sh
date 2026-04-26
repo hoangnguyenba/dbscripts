@@ -12,9 +12,10 @@
 #   -P, --port      MySQL port           (default: 3306)
 #   -u, --user      MySQL user           (default: root)
 #   -p, --password  MySQL password       (default: prompt)
-#   -d, --database  Target database name (required)
-#   -i, --input     Input file — local path or s3://bucket/path/file.sql[.gz] (required)
-#       --help      Show this help message
+#   -d, --database    Target database name (required)
+#   -i, --input       Input file — local path or s3://bucket/path/file.sql[.gz] (required)
+#   -c, --create-db   Create the database if it doesn't exist
+#       --help        Show this help message
 #
 # .env support:
 #   Place a .env file in the directory where you run the script.
@@ -68,6 +69,7 @@ ${CYAN}Options:${NC}
   -p, --password   MySQL password       (default: prompt)
   -d, --database   Target database name ${RED}(required)${NC}
   -i, --input      Input file — local path or s3://bucket/path/file.sql[.gz] ${RED}(required)${NC}
+  -c, --create-db  Create the database if it doesn't exist
       --help       Show this help message
 
 ${CYAN}.env support:${NC}
@@ -97,6 +99,7 @@ DB_USER=""
 DB_PASS=""
 DB_NAME=""
 INPUT=""
+CREATE_DB=false
 
 # -----------------------------------------------------------------------------
 # STEP 2: PARSE CLI ARGUMENTS (highest priority)
@@ -109,6 +112,7 @@ while [[ $# -gt 0 ]]; do
     -p|--password)  DB_PASS="$2"; shift 2 ;;
     -d|--database)  DB_NAME="$2"; shift 2 ;;
     -i|--input)     INPUT="$2";   shift 2 ;;
+    -c|--create-db) CREATE_DB=true; shift ;;
     --help)         usage ;;
     *)              error "Unknown option: $1. Use --help for usage." ;;
   esac
@@ -141,7 +145,8 @@ if [[ -f "$ENV_FILE" ]]; then
       DB_USERNAME)  [[ -z "$DB_USER" ]] && DB_USER="$value" ;;
       DB_PASSWORD)  [[ -z "$DB_PASS" ]] && DB_PASS="$value" ;;
       # dbimp-specific vars
-      DB_IMP_INPUT) [[ -z "$INPUT"   ]] && INPUT="$value"   ;;
+      DB_IMP_INPUT)     [[ -z "$INPUT"      ]] && INPUT="$value"        ;;
+      DB_IMP_CREATE_DB) [[ "$CREATE_DB" == false && "$value" == "true" ]] && CREATE_DB=true ;;
     esac
   done < "$ENV_FILE"
   warn ".env loaded from: $ENV_FILE"
@@ -229,15 +234,36 @@ if [[ "$INPUT" == *.gz ]]; then
 else
   echo "  Compressed  : no"
 fi
+echo "  Create DB   : $CREATE_DB"
 echo ""
 
 # -----------------------------------------------------------------------------
-# VALIDATE CONNECTION
+# VALIDATE CONNECTION (without database — just the server)
 # -----------------------------------------------------------------------------
 log "Testing database connection..."
-mysql "${MYSQL_ARGS[@]}" -e "USE $DB_NAME;" 2>/dev/null \
-  || error "Cannot connect to database '$DB_NAME'. Check your credentials and host."
+mysql "${MYSQL_ARGS[@]}" -e "SELECT 1;" 2>/dev/null \
+  || error "Cannot connect to MySQL server at '$DB_HOST:$DB_PORT'. Check your credentials."
 log "Connection OK."
+
+# -----------------------------------------------------------------------------
+# CREATE DATABASE (if --create-db is set)
+# -----------------------------------------------------------------------------
+DB_EXISTS=$(mysql "${MYSQL_ARGS[@]}" -N -e \
+  "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '$DB_NAME';" 2>/dev/null)
+
+if [[ "$DB_EXISTS" -eq 0 ]]; then
+  if [[ "$CREATE_DB" == true ]]; then
+    log "Database '$DB_NAME' not found — creating..."
+    mysql "${MYSQL_ARGS[@]}" -e \
+      "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
+      || error "Failed to create database '$DB_NAME'."
+    log "Database '$DB_NAME' created."
+  else
+    error "Database '$DB_NAME' does not exist. Use -c or --create-db to create it automatically."
+  fi
+else
+  log "Database '$DB_NAME' exists."
+fi
 
 # -----------------------------------------------------------------------------
 # STEP 7: IMPORT
