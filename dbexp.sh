@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# mysqldump_selective.sh
+# dbexp.sh
 # Dump a MySQL database, with option to include schema-only for specific tables
 #
 # Usage:
-#   ./mysqldump_selective.sh [OPTIONS]
+#   ./dbexp.sh [OPTIONS]
 #
 # Options:
 #   -h, --host        MySQL host             (default: localhost)
@@ -23,17 +23,17 @@
 # Notes:
 #   - Use % as wildcard in table names (e.g. temp_% matches temp_users, temp_logs, etc.)
 #   - If -o is an S3 path, the aws CLI must be installed and configured
-#   - -f and -o are combined: final destination = <output>/<filename>
+#   - -f and -o are combined: final destination = <o>/<filename>
 #
 # Examples:
-#   ./mysqldump_selective.sh -d mydb
-#   ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
-#   ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
-#   ./mysqldump_selective.sh -d mydb -s "temp_%" -x "cache_%,debug_%"
-#   ./mysqldump_selective.sh -d mydb -o /backups -f mydb.sql
-#   ./mysqldump_selective.sh -d mydb -z -o /backups
-#   ./mysqldump_selective.sh -d mydb -z -o s3://my-bucket/backups/mysql
-#   ./mysqldump_selective.sh -d mydb -z -o s3://my-bucket/backups -f mydb.sql.gz
+#   ./dbexp.sh -d mydb
+#   ./dbexp.sh -d mydb -u admin -h db.example.com
+#   ./dbexp.sh -d mydb -s logs,sessions -x tmp,debug
+#   ./dbexp.sh -d mydb -s "temp_%" -x "cache_%,debug_%"
+#   ./dbexp.sh -d mydb -o /backups -f mydb.sql
+#   ./dbexp.sh -d mydb -z -o /backups
+#   ./dbexp.sh -d mydb -z -o s3://my-bucket/backups/mysql
+#   ./dbexp.sh -d mydb -z -o s3://my-bucket/backups -f mydb.sql.gz
 # =============================================================================
 
 set -euo pipefail
@@ -68,7 +68,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 usage() {
   echo -e "
 ${CYAN}Usage:${NC}
-  ./mysqldump_selective.sh [OPTIONS]
+  ./dbexp.sh [OPTIONS]
 
 ${CYAN}Options:${NC}
   -h, --host         MySQL host             (default: localhost)
@@ -93,13 +93,13 @@ ${CYAN}Output path logic:${NC}
   -o s3://my-bucket/backups -f mydb.sql.gz  → s3://my-bucket/backups/mydb.sql.gz
 
 ${CYAN}Examples:${NC}
-  ./mysqldump_selective.sh -d mydb
-  ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
-  ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
-  ./mysqldump_selective.sh -d mydb -s \"temp_%\" -x \"cache_%,debug_%\"
-  ./mysqldump_selective.sh -d mydb -z -o /backups -f mydb.sql
-  ./mysqldump_selective.sh -d mydb -z -o s3://my-bucket/backups/mysql
-  ./mysqldump_selective.sh -d mydb -z -o s3://my-bucket/backups -f mydb.sql.gz
+  ./dbexp.sh -d mydb
+  ./dbexp.sh -d mydb -u admin -h db.example.com
+  ./dbexp.sh -d mydb -s logs,sessions -x tmp,debug
+  ./dbexp.sh -d mydb -s \"temp_%\" -x \"cache_%,debug_%\"
+  ./dbexp.sh -d mydb -z -o /backups -f mydb.sql
+  ./dbexp.sh -d mydb -z -o s3://my-bucket/backups/mysql
+  ./dbexp.sh -d mydb -z -o s3://my-bucket/backups -f mydb.sql.gz
 "
   exit 0
 }
@@ -167,7 +167,7 @@ elif [[ "$OUTPUT_DIR" =~ ^s3:// ]]; then
   IS_S3=true
   S3_DEST="${OUTPUT_DIR%/}/$OUTPUT_FILENAME"
   # Dump to a local temp file first, then upload
-  LOCAL_OUTPUT="$(mktemp /tmp/mysqldump_XXXXXX)"
+  LOCAL_OUTPUT="$(mktemp /tmp/dbexp_XXXXXX)"
 
 else
   # Local directory
@@ -261,7 +261,7 @@ done
 # -----------------------------------------------------------------------------
 # DUMP — use a temp .sql file, then compress/move into final destination
 # -----------------------------------------------------------------------------
-TEMP_SQL="$(mktemp /tmp/mysqldump_XXXXXX.sql)"
+TEMP_SQL="$(mktemp /tmp/dbexp_XXXXXX.sql)"
 
 # PASS 1: Full dump (schema + data), excluding ignored tables
 log "Pass 1: Dumping full database (schema + data)..."
