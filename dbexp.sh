@@ -260,6 +260,12 @@ echo "  Compress    : $ZIP"
 echo ""
 
 # -----------------------------------------------------------------------------
+# AUTO-DETECT pv
+# -----------------------------------------------------------------------------
+USE_PV=false
+command -v pv &>/dev/null && USE_PV=true
+
+# -----------------------------------------------------------------------------
 # VALIDATE CONNECTION
 # -----------------------------------------------------------------------------
 log "Testing database connection..."
@@ -350,7 +356,11 @@ if [[ "$ZIP" == true ]]; then
   TEMP_NAMED="$(dirname "$TEMP_SQL")/$SQL_FILENAME"
   mv "$TEMP_SQL" "$TEMP_NAMED"
   mkdir -p "$(dirname "$LOCAL_OUTPUT")"
-  gzip -c "$TEMP_NAMED" > "$LOCAL_OUTPUT"
+  if [[ "$USE_PV" == true ]]; then
+    pv "$TEMP_NAMED" | gzip > "$LOCAL_OUTPUT"
+  else
+    gzip -c "$TEMP_NAMED" > "$LOCAL_OUTPUT"
+  fi
   rm -f "$TEMP_NAMED"
 else
   mkdir -p "$(dirname "$LOCAL_OUTPUT")"

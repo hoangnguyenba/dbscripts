@@ -288,6 +288,12 @@ echo "  Create DB   : $CREATE_DB"
 echo ""
 
 # -----------------------------------------------------------------------------
+# AUTO-DETECT pv
+# -----------------------------------------------------------------------------
+USE_PV=false
+command -v pv &>/dev/null && USE_PV=true
+
+# -----------------------------------------------------------------------------
 # VALIDATE CONNECTION (without database — just the server)
 # -----------------------------------------------------------------------------
 log "Testing database connection..."
@@ -321,8 +327,13 @@ fi
 SIZE=$(du -sh "$SQL_FILE" | cut -f1)
 log "Importing into '${DB_NAME}' (uncompressed size: $SIZE)..."
 
-mysql "${MYSQL_ARGS[@]}" "$DB_NAME" < "$SQL_FILE" \
-  || error "Import failed. Check the SQL file and database permissions."
+if [[ "$USE_PV" == true ]]; then
+  pv "$SQL_FILE" | mysql "${MYSQL_ARGS[@]}" "$DB_NAME" \
+    || error "Import failed. Check the SQL file and database permissions."
+else
+  mysql "${MYSQL_ARGS[@]}" "$DB_NAME" < "$SQL_FILE" \
+    || error "Import failed. Check the SQL file and database permissions."
+fi
 
 # -----------------------------------------------------------------------------
 # DONE

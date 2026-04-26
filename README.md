@@ -31,6 +31,7 @@ A pair of bash scripts for exporting and importing MySQL databases with a clean 
 - `mysql` and `mysqldump` — MySQL client tools
 - `gzip` — for compression/decompression (usually pre-installed)
 - `aws` CLI — only required when using S3 paths
+- `pv` — optional, enables progress bar automatically if installed (`sudo apt install pv` / `brew install pv`)
 
 ---
 
@@ -312,6 +313,7 @@ dbimp \
 
 ## Tips
 
+- **Install `pv`** to get a real-time progress bar, speed, and ETA automatically during exports and imports — no configuration needed. (`sudo apt install pv` or `brew install pv`). If `pv` is not installed the scripts work normally without it.
 - **Omit `-p`** to be prompted for the password securely — it won't appear in shell history.
 - **Pair `DB_EXP_FILENAME` with `DB_IMP_INPUT`** to always export and import the same fixed filename (e.g. `contentdb_latest.sql.gz`) — useful for dev environment syncing.
 - **Use `-z` with S3** to reduce transfer size and storage costs significantly.
