@@ -179,26 +179,76 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# STEP 5: DOWNLOAD FROM S3 (if input is an S3 path)
+# STEP 5: RESOLVE INPUT — if a directory is given, find the latest dump file
+# Works for both local directories and S3 prefixes
 # -----------------------------------------------------------------------------
-LOCAL_FILE="$INPUT"
 
+resolve_latest_local() {
+  local dir="$1"
+  # List .sql and .sql.gz files, sort by name descending, pick the first
+  local latest
+  latest=$(find "$dir" -maxdepth 1 \( -name "*.sql" -o -name "*.sql.gz" \) \
+    | sort -r | head -n 1)
+  echo "$latest"
+}
+
+resolve_latest_s3() {
+  local prefix="$1"
+  # List objects under prefix, filter .sql/.sql.gz, sort by LastModified descending
+  local latest
+  latest=$(aws s3 ls "${prefix%/}/" \
+    | grep -E '\.(sql|sql\.gz)$' \
+    | sort -r \
+    | awk 'NR==1 {print $NF}')
+  echo "$latest"
+}
+
+# Detect if INPUT is a directory/prefix or a direct file
 if [[ "$INPUT" =~ ^s3:// ]]; then
-  [[ "$INPUT" =~ ^s3://[^/]+/.+ ]] \
-    || error "Invalid S3 path: '$INPUT'. Format must be s3://bucket-name/path/to/file"
   command -v aws &>/dev/null \
-    || error "aws CLI is not installed or not in PATH. Required to download from S3."
+    || error "aws CLI is not installed or not in PATH. Required for S3."
 
-  FILENAME="$(basename "$INPUT")"
+  # Check if it looks like a file (ends with .sql or .sql.gz) or a directory prefix
+  if [[ "$INPUT" =~ \.(sql|sql\.gz)$ ]]; then
+    # Direct S3 file path
+    [[ "$INPUT" =~ ^s3://[^/]+/.+ ]] \
+      || error "Invalid S3 path: '$INPUT'. Format must be s3://bucket-name/path/to/file"
+    S3_FILE="$INPUT"
+  else
+    # S3 prefix — find the latest file
+    log "Scanning S3 for latest dump in: ${CYAN}$INPUT${NC}..."
+    LATEST_FILENAME=$(resolve_latest_s3 "$INPUT")
+    [[ -z "$LATEST_FILENAME" ]] \
+      && error "No .sql or .sql.gz files found at S3 path: '$INPUT'"
+    S3_FILE="${INPUT%/}/$LATEST_FILENAME"
+    log "Latest file found: ${CYAN}$S3_FILE${NC}"
+    INPUT="$S3_FILE"
+  fi
+
+  # Download from S3
+  FILENAME="$(basename "$S3_FILE")"
   LOCAL_FILE="$(mktemp /tmp/dbimp_XXXXXX_${FILENAME})"
   TEMP_FILES+=("$LOCAL_FILE")
-
-  log "Downloading from S3: ${CYAN}$INPUT${NC}..."
-  aws s3 cp "$INPUT" "$LOCAL_FILE" \
+  log "Downloading from S3: ${CYAN}$S3_FILE${NC}..."
+  aws s3 cp "$S3_FILE" "$LOCAL_FILE" \
     || error "S3 download failed. Check your AWS credentials and the file path."
   log "Download complete."
+
 else
-  [[ -f "$LOCAL_FILE" ]] || error "Input file not found: '$LOCAL_FILE'"
+  # Local path — check if it's a file or directory
+  if [[ -f "$INPUT" ]]; then
+    LOCAL_FILE="$INPUT"
+  elif [[ -d "$INPUT" ]]; then
+    log "Scanning directory for latest dump in: ${CYAN}$INPUT${NC}..."
+    LATEST=$(resolve_latest_local "$INPUT")
+    [[ -z "$LATEST" ]] \
+      && error "No .sql or .sql.gz files found in directory: '$INPUT'"
+    log "Latest file found: ${CYAN}$LATEST${NC}"
+    INPUT="$LATEST"
+    LOCAL_FILE="$LATEST"
+  else
+    error "Input path not found: '$INPUT'"
+  fi
 fi
 
 # -----------------------------------------------------------------------------

@@ -241,7 +241,7 @@ dbexp \
 
 ## dbimp — Import
 
-Imports a `.sql` or `.sql.gz` file into a MySQL database. Automatically downloads from S3 and decompresses if needed.
+Imports a `.sql` or `.sql.gz` file into a MySQL database. Accepts a file path or a directory — if a directory is given, it automatically picks the latest dump file.
 
 ### Options
 
@@ -252,12 +252,24 @@ Imports a `.sql` or `.sql.gz` file into a MySQL database. Automatically download
 | `-u` | `--user` | MySQL user | `root` |
 | `-p` | `--password` | MySQL password (prompted if omitted) | — |
 | `-d` | `--database` | Target database name | **(required)** |
-| `-i` | `--input` | Input file — local path or `s3://bucket/path/file.sql[.gz]` | **(required)** |
+| `-i` | `--input` | Input file or directory — local or `s3://bucket/path` | **(required)** |
 | `-c` | `--create-db` | Create the database if it doesn't exist | — |
+
+### Input resolution
+
+The `-i` flag accepts either a **file path** or a **directory path** (local or S3):
+
+| Input | Behaviour |
+|---|---|
+| Path to a `.sql` or `.sql.gz` file | Import that file directly |
+| Path to a local directory | List all `.sql` / `.sql.gz` files, import the latest |
+| S3 prefix (no file extension) | List all `.sql` / `.sql.gz` objects, import the latest |
+
+Files are sorted by name descending to determine "latest" — this works naturally with the default `<dbname>_<timestamp>` naming from `dbexp`.
 
 ### Auto-detection
 
-The script inspects the input path and handles everything automatically:
+The script automatically handles the resolved file:
 
 | Condition | Action |
 |---|---|
@@ -270,20 +282,20 @@ Temp files are always cleaned up on exit, even if the script fails mid-way.
 ### Examples
 
 ```sh
-# Local plain SQL
-dbimp -d mydb -i /backups/mydb_20260426.sql
-
-# Local compressed
+# Local — specific file
 dbimp -d mydb -i /backups/mydb_20260426.sql.gz
 
-# Auto-create the database if it doesn't exist
-dbimp -d newdb -i /backups/mydb_20260426.sql.gz -c
+# Local — directory (auto picks latest file)
+dbimp -d mydb -i /backups
 
-# From S3 — plain
-dbimp -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
-
-# From S3 — compressed (download + decompress + import, fully automatic)
+# S3 — specific file
 dbimp -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
+
+# S3 — prefix/directory (auto picks latest file)
+dbimp -d mydb -i s3://my-bucket/backups
+
+# Auto-create the database if it doesn't exist
+dbimp -d newdb -i /backups -c
 
 # Full example
 dbimp \
@@ -293,7 +305,7 @@ dbimp \
   -p secret \
   -d testdb \
   -c \
-  -i ./backups/contentdb_20260426_171540.sql.gz
+  -i ./backups
 ```
 
 ---
