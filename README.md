@@ -27,28 +27,53 @@ A pair of bash scripts for exporting and importing MySQL databases, with support
 
 ## Installation
 
-Add the script directory to your `$PATH` so the scripts can be run from anywhere without specifying the full path.
+### One-liner (recommended)
+
+Run this command in your terminal to download and install both scripts to `/usr/local/bin`:
 
 ```bash
-# 1. Make scripts executable
+curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
+```
+
+Or with `wget`:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
+```
+
+Once installed, the scripts are available system-wide as `dbexp` and `dbimp` (no `.sh` extension needed):
+
+```bash
+dbexp -d mydb -z -o /backups
+dbimp -d mydb -i /backups/mydb.sql.gz
+```
+
+### Manual installation
+
+If you prefer to install manually or want to keep the scripts editable:
+
+```bash
+# Clone the repo
+git clone https://github.com/hoangnguyenba/dbscripts.git ~/projects/dbscripts
+
+# Make scripts executable
 chmod +x ~/projects/dbscripts/dbexp.sh
 chmod +x ~/projects/dbscripts/dbimp.sh
 
-# 2. Add the directory to PATH in your shell config
+# Add to PATH in your shell config
 echo 'export PATH="$HOME/projects/dbscripts:$PATH"' >> ~/.bashrc
-
-# 3. Reload shell config
 source ~/.bashrc
 ```
 
-You can now run the scripts from any directory:
+> **Note:** With manual installation, any edits to the scripts take effect immediately — no re-installation needed.
+
+### Updating
+
+Re-run the one-liner at any time to update to the latest version:
 
 ```bash
-dbexp.sh -d mydb -z -o /backups
-dbimp.sh -d mydb -i /backups/mydb.sql.gz
+curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
 ```
-
-> **Note:** Any edits you make to the scripts take effect immediately — no re-installation needed.
 
 ---
 
