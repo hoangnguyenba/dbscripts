@@ -27,23 +27,12 @@
 # S3 compressed (download + decompress + import, fully automatic)
 ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
 
-# import
-```sh
-./dbexp.sh \
-  -h 127.0.0.1 \
-  -P 3313 \
-  -u root \
-  -p test \
-  -d testdb5 \
-  -i ./backups/contentdb_20260426_171540.sql.gz
-```
-
-# contentdb
+# testdb
 
 #### Export
 
 ```sh
-./mysqldump_selective.sh \
+./dbexp.sh \
   -h 127.0.0.1 \
   -P 3313 \
   -u root \
@@ -58,5 +47,11 @@
 #### Import
 
 ```sh
-mysql -h 127.0.0.1 -P 3313 -u root -ptest testdb4 < ./backups/contentdb3.sql
+./dbexp.sh \
+  -h 127.0.0.1 \
+  -P 3313 \
+  -u root \
+  -p test \
+  -d testdb5 \
+  -i ./backups/contentdb_20260426_171540.sql.gz
 ```
