@@ -25,6 +25,33 @@ A pair of bash scripts for exporting and importing MySQL databases, with support
 
 ---
 
+## Installation
+
+Add the script directory to your `$PATH` so the scripts can be run from anywhere without specifying the full path.
+
+```bash
+# 1. Make scripts executable
+chmod +x ~/projects/dbscripts/dbexp.sh
+chmod +x ~/projects/dbscripts/dbimp.sh
+
+# 2. Add the directory to PATH in your shell config
+echo 'export PATH="$HOME/projects/dbscripts:$PATH"' >> ~/.bashrc
+
+# 3. Reload shell config
+source ~/.bashrc
+```
+
+You can now run the scripts from any directory:
+
+```bash
+dbexp.sh -d mydb -z -o /backups
+dbimp.sh -d mydb -i /backups/mydb.sql.gz
+```
+
+> **Note:** Any edits you make to the scripts take effect immediately — no re-installation needed.
+
+---
+
 ## dbexp.sh — Export
 
 ### Options
