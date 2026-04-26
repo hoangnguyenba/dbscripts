@@ -20,6 +20,11 @@
 #   -z, --zip         Compress output with gzip (auto-adds .gz extension if missing)
 #       --help        Show this help message
 #
+# .env support:
+#   Place a .env file in the directory where you run the script.
+#   Supported keys: DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+#   CLI arguments always take priority over .env values.
+#
 # Notes:
 #   - Use % as wildcard in table names (e.g. temp_% matches temp_users, temp_logs, etc.)
 #   - If -o is an S3 path, the aws CLI must be installed and configured
@@ -37,20 +42,6 @@
 # =============================================================================
 
 set -euo pipefail
-
-# -----------------------------------------------------------------------------
-# DEFAULTS
-# -----------------------------------------------------------------------------
-DB_HOST="localhost"
-DB_PORT="3306"
-DB_USER="root"
-DB_PASS=""
-DB_NAME=""
-OUTPUT_DIR=""       # local path or s3://bucket/path
-OUTPUT_FILENAME=""  # just the filename, no path
-SCHEMA_ONLY_TABLES=()
-SKIP_TABLES=()
-ZIP=false
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -87,9 +78,14 @@ ${CYAN}Wildcard:${NC}
   Use % to match multiple tables by pattern.
   e.g. temp_% matches temp_users, temp_logs, etc.
 
+${CYAN}.env support:${NC}
+  Place a .env file in the directory where you run the script.
+  Supported keys: DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+  CLI arguments always take priority over .env values.
+
 ${CYAN}Output path logic:${NC}
-  -o /backups -f mydb.sql          → /backups/mydb.sql
-  -o s3://my-bucket/backups        → s3://my-bucket/backups/<dbname>_<timestamp>.sql.gz
+  -o /backups -f mydb.sql                   → /backups/mydb.sql
+  -o s3://my-bucket/backups                 → s3://my-bucket/backups/<dbname>_<timestamp>.sql.gz
   -o s3://my-bucket/backups -f mydb.sql.gz  → s3://my-bucket/backups/mydb.sql.gz
 
 ${CYAN}Examples:${NC}
@@ -105,7 +101,21 @@ ${CYAN}Examples:${NC}
 }
 
 # -----------------------------------------------------------------------------
-# PARSE ARGUMENTS
+# STEP 1: DEFAULTS (empty sentinels so we can detect what CLI set)
+# -----------------------------------------------------------------------------
+DB_HOST=""
+DB_PORT=""
+DB_USER=""
+DB_PASS=""
+DB_NAME=""
+OUTPUT_DIR=""
+OUTPUT_FILENAME=""
+SCHEMA_ONLY_TABLES=()
+SKIP_TABLES=()
+ZIP=false
+
+# -----------------------------------------------------------------------------
+# STEP 2: PARSE CLI ARGUMENTS (highest priority)
 # -----------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -127,6 +137,54 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -----------------------------------------------------------------------------
+# STEP 3: LOAD .env — only fills in values not already set by CLI args
+# DB_*     → shared connection args (both scripts)
+# DB_EXP_* → dbexp-specific args
+#
+# Supported keys:
+#   DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+#   DB_EXP_OUTPUT, DB_EXP_FILENAME, DB_EXP_SCHEMA_ONLY, DB_EXP_SKIP, DB_EXP_ZIP
+# -----------------------------------------------------------------------------
+ENV_FILE="$(pwd)/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${key// }" ]] && continue
+    value="${value%%#*}"
+    value="${value//\"/}"
+    value="${value//\'/}"
+    value="${value## }"
+    value="${value%% }"
+    case "$key" in
+      # Shared connection vars
+      DB_HOST)          [[ -z "$DB_HOST"  ]] && DB_HOST="$value"  ;;
+      DB_PORT)          [[ -z "$DB_PORT"  ]] && DB_PORT="$value"  ;;
+      DB_DATABASE)      [[ -z "$DB_NAME"  ]] && DB_NAME="$value"  ;;
+      DB_USERNAME)      [[ -z "$DB_USER"  ]] && DB_USER="$value"  ;;
+      DB_PASSWORD)      [[ -z "$DB_PASS"  ]] && DB_PASS="$value"  ;;
+      # dbexp-specific vars
+      DB_EXP_OUTPUT)    [[ -z "$OUTPUT_DIR"      ]] && OUTPUT_DIR="$value"      ;;
+      DB_EXP_FILENAME)  [[ -z "$OUTPUT_FILENAME" ]] && OUTPUT_FILENAME="$value" ;;
+      DB_EXP_SCHEMA_ONLY)
+        [[ ${#SCHEMA_ONLY_TABLES[@]} -eq 0 ]] \
+          && IFS=',' read -ra SCHEMA_ONLY_TABLES <<< "$value" ;;
+      DB_EXP_SKIP)
+        [[ ${#SKIP_TABLES[@]} -eq 0 ]] \
+          && IFS=',' read -ra SKIP_TABLES <<< "$value" ;;
+      DB_EXP_ZIP)       [[ "$ZIP" == false && "$value" == "true" ]] && ZIP=true ;;
+    esac
+  done < "$ENV_FILE"
+  warn ".env loaded from: $ENV_FILE"
+fi
+
+# -----------------------------------------------------------------------------
+# STEP 4: APPLY FALLBACK DEFAULTS for anything still unset
+# -----------------------------------------------------------------------------
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-3306}"
+DB_USER="${DB_USER:-root}"
+
+# -----------------------------------------------------------------------------
 # VALIDATE & RESOLVE OUTPUT PATH
 # -----------------------------------------------------------------------------
 [[ -z "$DB_NAME" ]] && error "Database name is required. Use -d or --database.\nRun --help for usage."
@@ -135,14 +193,12 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 # Resolve filename — apply .gz extension logic if --zip is set
 if [[ -z "$OUTPUT_FILENAME" ]]; then
-  # Default filename
   if [[ "$ZIP" == true ]]; then
     OUTPUT_FILENAME="${DB_NAME}_${TIMESTAMP}.sql.gz"
   else
     OUTPUT_FILENAME="${DB_NAME}_${TIMESTAMP}.sql"
   fi
 else
-  # User provided a filename — auto-append .gz if --zip and extension is missing
   if [[ "$ZIP" == true && "$OUTPUT_FILENAME" != *.gz ]]; then
     OUTPUT_FILENAME="${OUTPUT_FILENAME}.gz"
     warn "Auto-appended .gz to filename: $OUTPUT_FILENAME"
@@ -155,22 +211,18 @@ S3_DEST=""
 LOCAL_OUTPUT=""
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-  # No -o given — write to current directory
   LOCAL_OUTPUT="./$OUTPUT_FILENAME"
 
 elif [[ "$OUTPUT_DIR" =~ ^s3:// ]]; then
-  # S3 path
   [[ "$OUTPUT_DIR" =~ ^s3://[^/]+ ]] \
     || error "Invalid S3 path: '$OUTPUT_DIR'. Format must be s3://bucket-name/optional/path"
   command -v aws &>/dev/null \
     || error "aws CLI is not installed or not in PATH. Required for S3 upload."
   IS_S3=true
   S3_DEST="${OUTPUT_DIR%/}/$OUTPUT_FILENAME"
-  # Dump to a local temp file first, then upload
   LOCAL_OUTPUT="$(mktemp /tmp/dbexp_XXXXXX)"
 
 else
-  # Local directory
   mkdir -p "$OUTPUT_DIR"
   LOCAL_OUTPUT="${OUTPUT_DIR%/}/$OUTPUT_FILENAME"
 fi
@@ -294,7 +346,6 @@ fi
 # -----------------------------------------------------------------------------
 if [[ "$ZIP" == true ]]; then
   log "Compressing with gzip..."
-  # Derive the inner .sql filename by stripping .gz from the output filename
   SQL_FILENAME="${OUTPUT_FILENAME%.gz}"
   TEMP_NAMED="$(dirname "$TEMP_SQL")/$SQL_FILENAME"
   mv "$TEMP_SQL" "$TEMP_NAMED"

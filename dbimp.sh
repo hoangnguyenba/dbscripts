@@ -16,6 +16,11 @@
 #   -i, --input     Input file — local path or s3://bucket/path/file.sql[.gz] (required)
 #       --help      Show this help message
 #
+# .env support:
+#   Place a .env file in the directory where you run the script.
+#   Supported keys: DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+#   CLI arguments always take priority over .env values.
+#
 # Notes:
 #   - If -i starts with s3://, the file is downloaded automatically (aws CLI required)
 #   - If the file ends with .gz, it is decompressed automatically before import
@@ -24,20 +29,10 @@
 #   ./dbimp.sh -d mydb -i /backups/mydb_20260426.sql
 #   ./dbimp.sh -d mydb -i /backups/mydb_20260426.sql.gz
 #   ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
-#   ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz -u admin -h db.example.com
+#   ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
 # =============================================================================
 
 set -euo pipefail
-
-# -----------------------------------------------------------------------------
-# DEFAULTS
-# -----------------------------------------------------------------------------
-DB_HOST="localhost"
-DB_PORT="3306"
-DB_USER="root"
-DB_PASS=""
-DB_NAME=""
-INPUT=""
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -72,24 +67,39 @@ ${CYAN}Options:${NC}
   -u, --user       MySQL user           (default: root)
   -p, --password   MySQL password       (default: prompt)
   -d, --database   Target database name ${RED}(required)${NC}
-  -i, --input      Input file path — local or s3://bucket/path/file.sql[.gz] ${RED}(required)${NC}
+  -i, --input      Input file — local path or s3://bucket/path/file.sql[.gz] ${RED}(required)${NC}
       --help       Show this help message
 
+${CYAN}.env support:${NC}
+  Place a .env file in the directory where you run the script.
+  Supported keys: DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+  CLI arguments always take priority over .env values.
+
 ${CYAN}Auto-detection:${NC}
-  s3://...         File is downloaded from S3 before import (requires aws CLI)
-  *.gz             File is decompressed with gunzip before import
+  s3://...  File is downloaded from S3 before import (requires aws CLI)
+  *.gz      File is decompressed with gunzip before import
 
 ${CYAN}Examples:${NC}
   ./dbimp.sh -d mydb -i /backups/mydb_20260426.sql
   ./dbimp.sh -d mydb -i /backups/mydb_20260426.sql.gz
   ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
-  ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz -u admin -h db.example.com
+  ./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
 "
   exit 0
 }
 
 # -----------------------------------------------------------------------------
-# PARSE ARGUMENTS
+# STEP 1: DEFAULTS (empty sentinels so we can detect what CLI set)
+# -----------------------------------------------------------------------------
+DB_HOST=""
+DB_PORT=""
+DB_USER=""
+DB_PASS=""
+DB_NAME=""
+INPUT=""
+
+# -----------------------------------------------------------------------------
+# STEP 2: PARSE CLI ARGUMENTS (highest priority)
 # -----------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -103,6 +113,46 @@ while [[ $# -gt 0 ]]; do
     *)              error "Unknown option: $1. Use --help for usage." ;;
   esac
 done
+
+# -----------------------------------------------------------------------------
+# STEP 3: LOAD .env — only fills in values not already set by CLI args
+# DB_*     → shared connection args (both scripts)
+# DB_IMP_* → dbimp-specific args
+#
+# Supported keys:
+#   DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+#   DB_IMP_INPUT
+# -----------------------------------------------------------------------------
+ENV_FILE="$(pwd)/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${key// }" ]] && continue
+    value="${value%%#*}"
+    value="${value//\"/}"
+    value="${value//\'/}"
+    value="${value## }"
+    value="${value%% }"
+    case "$key" in
+      # Shared connection vars
+      DB_HOST)      [[ -z "$DB_HOST" ]] && DB_HOST="$value" ;;
+      DB_PORT)      [[ -z "$DB_PORT" ]] && DB_PORT="$value" ;;
+      DB_DATABASE)  [[ -z "$DB_NAME" ]] && DB_NAME="$value" ;;
+      DB_USERNAME)  [[ -z "$DB_USER" ]] && DB_USER="$value" ;;
+      DB_PASSWORD)  [[ -z "$DB_PASS" ]] && DB_PASS="$value" ;;
+      # dbimp-specific vars
+      DB_IMP_INPUT) [[ -z "$INPUT"   ]] && INPUT="$value"   ;;
+    esac
+  done < "$ENV_FILE"
+  warn ".env loaded from: $ENV_FILE"
+fi
+
+# -----------------------------------------------------------------------------
+# STEP 4: APPLY FALLBACK DEFAULTS for anything still unset
+# -----------------------------------------------------------------------------
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-3306}"
+DB_USER="${DB_USER:-root}"
 
 # -----------------------------------------------------------------------------
 # VALIDATE REQUIRED ARGS
@@ -124,7 +174,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# STEP 1: DOWNLOAD FROM S3 (if input is an S3 path)
+# STEP 5: DOWNLOAD FROM S3 (if input is an S3 path)
 # -----------------------------------------------------------------------------
 LOCAL_FILE="$INPUT"
 
@@ -141,13 +191,13 @@ if [[ "$INPUT" =~ ^s3:// ]]; then
   log "Downloading from S3: ${CYAN}$INPUT${NC}..."
   aws s3 cp "$INPUT" "$LOCAL_FILE" \
     || error "S3 download failed. Check your AWS credentials and the file path."
-  log "Download complete: $LOCAL_FILE"
+  log "Download complete."
 else
   [[ -f "$LOCAL_FILE" ]] || error "Input file not found: '$LOCAL_FILE'"
 fi
 
 # -----------------------------------------------------------------------------
-# STEP 2: DECOMPRESS (if file is gzipped)
+# STEP 6: DECOMPRESS (if file is gzipped)
 # -----------------------------------------------------------------------------
 SQL_FILE="$LOCAL_FILE"
 
@@ -190,7 +240,7 @@ mysql "${MYSQL_ARGS[@]}" -e "USE $DB_NAME;" 2>/dev/null \
 log "Connection OK."
 
 # -----------------------------------------------------------------------------
-# STEP 3: IMPORT
+# STEP 7: IMPORT
 # -----------------------------------------------------------------------------
 SIZE=$(du -sh "$SQL_FILE" | cut -f1)
 log "Importing into '${DB_NAME}' (uncompressed size: $SIZE)..."

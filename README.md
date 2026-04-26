@@ -25,6 +25,80 @@ A pair of bash scripts for exporting and importing MySQL databases, with support
 
 ---
 
+## .env Support
+
+Both scripts automatically detect and load a `.env` file from the directory where you run the command. This means if your project already has a `.env` with database config, you don't need to pass any connection flags.
+
+**Priority:** CLI arguments always win over `.env` values.
+
+### Shared connection vars (`DB_`)
+
+Supported by both `dbexp` and `dbimp`:
+
+| Key | Maps to | Description |
+|---|---|---|
+| `DB_HOST` | `-h` | MySQL host |
+| `DB_PORT` | `-P` | MySQL port |
+| `DB_DATABASE` | `-d` | Database name |
+| `DB_USERNAME` | `-u` | MySQL user |
+| `DB_PASSWORD` | `-p` | MySQL password |
+
+### Export vars (`DB_EXP_`)
+
+Only read by `dbexp`:
+
+| Key | Maps to | Description |
+|---|---|---|
+| `DB_EXP_OUTPUT` | `-o` | Output directory (local or s3://) |
+| `DB_EXP_FILENAME` | `-f` | Output filename |
+| `DB_EXP_SCHEMA_ONLY` | `-s` | Comma-separated schema-only tables |
+| `DB_EXP_SKIP` | `-x` | Comma-separated tables to skip |
+| `DB_EXP_ZIP` | `-z` | Set to `true` to enable compression |
+
+### Import vars (`DB_IMP_`)
+
+Only read by `dbimp`:
+
+| Key | Maps to | Description |
+|---|---|---|
+| `DB_IMP_INPUT` | `-i` | Input file path (local or s3://) |
+
+### Example `.env`
+
+```env
+# Shared — connection
+DB_HOST=contentdb
+DB_PORT=3306
+DB_DATABASE=contentdb
+DB_USERNAME=root
+DB_PASSWORD=example
+
+# Export defaults
+DB_EXP_OUTPUT=./backups
+DB_EXP_SCHEMA_ONLY=jobs,clients
+DB_EXP_SKIP=model_activities,temp_%
+DB_EXP_ZIP=true
+
+# Import defaults
+DB_IMP_INPUT=./backups/contentdb_latest.sql.gz
+```
+
+With this `.env` in your project directory you can run with no arguments at all:
+
+```bash
+dbexp   # export with all defaults from .env
+dbimp   # import with all defaults from .env
+```
+
+Or override individual values as needed:
+
+```bash
+dbexp -o s3://my-bucket/backups   # override output only, rest from .env
+dbimp -i ./backups/other.sql.gz   # override input only, rest from .env
+```
+
+---
+
 ## Installation
 
 ### One-liner (recommended)
