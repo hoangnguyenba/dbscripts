@@ -1,19 +1,28 @@
 # dbscripts
 
-A pair of bash scripts for exporting and importing MySQL databases, with support for:
+A pair of bash scripts for exporting and importing MySQL databases with a clean CLI interface.
 
-- Selective table export (schema-only or skip entirely) with wildcard patterns
-- gzip compression
-- Local and S3 storage
+**Features:**
+
+- Selective table export — schema-only or skip entirely, with `%` wildcard pattern support
+- gzip compression with correct inner filename
+- Local and S3 storage (auto-detects from path)
+- Auto-download from S3 and auto-decompress on import
+- Auto-create database on import if it doesn't exist
+- `.env` file support — works out of the box in Laravel, Docker, and similar projects
+- CLI arguments always take priority over `.env` values
 
 ---
 
-## Scripts
+## Table of Contents
 
-| Script | Purpose |
-|---|---|
-| `dbexp.sh` | Export (dump) a database |
-| `dbimp.sh` | Import a dump file into a database |
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [.env Support](#env-support)
+- [dbexp — Export](#dbexp--export)
+- [dbimp — Import](#dbimp--import)
+- [Tips](#tips)
+- [License](#license)
 
 ---
 
@@ -25,86 +34,11 @@ A pair of bash scripts for exporting and importing MySQL databases, with support
 
 ---
 
-## .env Support
-
-Both scripts automatically detect and load a `.env` file from the directory where you run the command. This means if your project already has a `.env` with database config, you don't need to pass any connection flags.
-
-**Priority:** CLI arguments always win over `.env` values.
-
-### Shared connection vars (`DB_`)
-
-Supported by both `dbexp` and `dbimp`:
-
-| Key | Maps to | Description |
-|---|---|---|
-| `DB_HOST` | `-h` | MySQL host |
-| `DB_PORT` | `-P` | MySQL port |
-| `DB_DATABASE` | `-d` | Database name |
-| `DB_USERNAME` | `-u` | MySQL user |
-| `DB_PASSWORD` | `-p` | MySQL password |
-
-### Export vars (`DB_EXP_`)
-
-Only read by `dbexp`:
-
-| Key | Maps to | Description |
-|---|---|---|
-| `DB_EXP_OUTPUT` | `-o` | Output directory (local or s3://) |
-| `DB_EXP_FILENAME` | `-f` | Output filename |
-| `DB_EXP_SCHEMA_ONLY` | `-s` | Comma-separated schema-only tables |
-| `DB_EXP_SKIP` | `-x` | Comma-separated tables to skip |
-| `DB_EXP_ZIP` | `-z` | Set to `true` to enable compression |
-
-### Import vars (`DB_IMP_`)
-
-Only read by `dbimp`:
-
-| Key | Maps to | Description |
-|---|---|---|
-| `DB_IMP_INPUT` | `-i` | Input file path (local or s3://) |
-| `DB_IMP_CREATE_DB` | `-c` | Set to `true` to auto-create the database |
-
-### Example `.env`
-
-```env
-# Shared — connection
-DB_HOST=contentdb
-DB_PORT=3306
-DB_DATABASE=contentdb
-DB_USERNAME=root
-DB_PASSWORD=example
-
-# Export defaults
-DB_EXP_OUTPUT=./backups
-DB_EXP_SCHEMA_ONLY=jobs,clients
-DB_EXP_SKIP=model_activities,temp_%
-DB_EXP_ZIP=true
-
-# Import defaults
-DB_IMP_INPUT=./backups/contentdb_latest.sql.gz
-```
-
-With this `.env` in your project directory you can run with no arguments at all:
-
-```bash
-dbexp   # export with all defaults from .env
-dbimp   # import with all defaults from .env
-```
-
-Or override individual values as needed:
-
-```bash
-dbexp -o s3://my-bucket/backups   # override output only, rest from .env
-dbimp -i ./backups/other.sql.gz   # override input only, rest from .env
-```
-
----
-
 ## Installation
 
 ### One-liner (recommended)
 
-Run this command in your terminal to download and install both scripts to `/usr/local/bin`:
+Run this in your terminal to download and install both scripts to `/usr/local/bin`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
@@ -125,7 +59,7 @@ dbimp -d mydb -i /backups/mydb.sql.gz
 
 ### Manual installation
 
-If you prefer to install manually or want to keep the scripts editable:
+If you prefer to keep the scripts editable and version-controlled locally:
 
 ```bash
 # Clone the repo
@@ -144,7 +78,7 @@ source ~/.bashrc
 
 ### Updating
 
-Re-run the one-liner at any time to update to the latest version:
+Re-run the one-liner at any time to pull the latest version:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
@@ -152,7 +86,86 @@ curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/instal
 
 ---
 
-## dbexp.sh — Export
+## .env Support
+
+Both scripts automatically load a `.env` file from the **current working directory** when you run them. This means if your project already has a `.env` (e.g. Laravel, Docker Compose), no connection flags are needed.
+
+**Priority order:** `CLI argument` > `.env value` > built-in default
+
+### Shared connection vars (`DB_`)
+
+Recognised by both `dbexp` and `dbimp`:
+
+| Key | Flag | Description |
+|---|---|---|
+| `DB_HOST` | `-h` | MySQL host |
+| `DB_PORT` | `-P` | MySQL port |
+| `DB_DATABASE` | `-d` | Database name |
+| `DB_USERNAME` | `-u` | MySQL user |
+| `DB_PASSWORD` | `-p` | MySQL password |
+
+### Export vars (`DB_EXP_`)
+
+Only read by `dbexp`:
+
+| Key | Flag | Description |
+|---|---|---|
+| `DB_EXP_OUTPUT` | `-o` | Output directory — local path or `s3://bucket/path` |
+| `DB_EXP_FILENAME` | `-f` | Output filename |
+| `DB_EXP_SCHEMA_ONLY` | `-s` | Comma-separated tables to export schema only |
+| `DB_EXP_SKIP` | `-x` | Comma-separated tables to skip entirely |
+| `DB_EXP_ZIP` | `-z` | Set to `true` to enable gzip compression |
+
+### Import vars (`DB_IMP_`)
+
+Only read by `dbimp`:
+
+| Key | Flag | Description |
+|---|---|---|
+| `DB_IMP_INPUT` | `-i` | Input file path — local or `s3://bucket/path/file.sql[.gz]` |
+| `DB_IMP_CREATE_DB` | `-c` | Set to `true` to auto-create the database if it doesn't exist |
+
+### Example `.env`
+
+```env
+# Shared — connection
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=contentdb
+DB_USERNAME=root
+DB_PASSWORD=secret
+
+# Export defaults
+DB_EXP_OUTPUT=./backups
+DB_EXP_FILENAME=contentdb_latest.sql.gz
+DB_EXP_SCHEMA_ONLY=jobs,clients
+DB_EXP_SKIP=model_activities,temp_%
+DB_EXP_ZIP=true
+
+# Import defaults
+DB_IMP_INPUT=./backups/contentdb_latest.sql.gz
+DB_IMP_CREATE_DB=true
+```
+
+With this `.env` in place, you can run both scripts with zero arguments:
+
+```bash
+dbexp   # exports with all settings from .env
+dbimp   # imports with all settings from .env
+```
+
+Override individual values as needed — CLI args always win:
+
+```bash
+dbexp -o s3://my-bucket/backups   # override output dir only
+dbimp -d staging_db               # import into a different database
+```
+
+---
+
+## dbexp — Export
+
+Dumps a MySQL database to a `.sql` or `.sql.gz` file, locally or directly to S3.
 
 ### Options
 
@@ -171,52 +184,48 @@ curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/instal
 
 ### Table pattern wildcards
 
-Use `%` as a wildcard in `-s` and `-x` to match multiple tables by prefix or pattern.
-The script queries `information_schema` to resolve matching table names before the dump.
+Use `%` as a wildcard in `-s` and `-x` to match multiple tables by pattern. The script queries `information_schema` to resolve matches before dumping.
 
 ```
-temp_%    →  temp_users, temp_logs, temp_data, ...
-%_archive →  orders_archive, users_archive, ...
+temp_%     →  temp_users, temp_logs, temp_data, ...
+%_archive  →  orders_archive, users_archive, ...
 ```
 
 ### Output path logic
 
-`-o` and `-f` are combined to form the final destination:
+`-o` sets the directory and `-f` sets the filename. They combine to form the final destination:
 
 ```
--o /backups                      →  /backups/<dbname>_<timestamp>.sql
--o /backups -f mydb.sql          →  /backups/mydb.sql
--o /backups -f mydb.sql -z       →  /backups/mydb.sql.gz  (auto-appended .gz)
--o s3://my-bucket/backups        →  s3://my-bucket/backups/<dbname>_<timestamp>.sql.gz
+-o /backups                               →  /backups/<dbname>_<timestamp>.sql
+-o /backups -f mydb.sql                   →  /backups/mydb.sql
+-o /backups -f mydb.sql -z               →  /backups/mydb.sql.gz  (auto-appended .gz)
+-o s3://my-bucket/backups                 →  s3://my-bucket/backups/<dbname>_<timestamp>.sql.gz
 -o s3://my-bucket/backups -f mydb.sql.gz  →  s3://my-bucket/backups/mydb.sql.gz
 ```
 
-When the destination is an S3 path, the file is dumped locally to a temp file first, uploaded, then cleaned up automatically.
+When uploading to S3, the file is written to a local temp file first, uploaded, then cleaned up automatically.
 
 ### Examples
 
 ```sh
 # Minimal — dump to current directory
-./dbexp.sh -d mydb
+dbexp -d mydb
 
-# Custom host and user
-./dbexp.sh -d mydb -h 127.0.0.1 -P 3306 -u admin -p secret
-
-# Export to local directory with compression
-./dbexp.sh -d mydb -z -o /backups
+# Compressed export to local directory
+dbexp -d mydb -z -o /backups
 
 # Custom filename (auto-appends .gz because -z is set)
-./dbexp.sh -d mydb -z -o /backups -f mydb.sql
+dbexp -d mydb -z -o /backups -f mydb.sql
 # → /backups/mydb.sql.gz
 
-# Schema-only for some tables, skip others entirely (with wildcard)
-./dbexp.sh -d mydb -s jobs,clients -x model_activities,temp_%
+# Schema-only for specific tables, skip others (with wildcard)
+dbexp -d mydb -s jobs,clients -x model_activities,temp_%
 
-# Upload compressed dump to S3
-./dbexp.sh -d mydb -z -o s3://my-bucket/backups/mysql
+# Upload compressed dump directly to S3
+dbexp -d mydb -z -o s3://my-bucket/backups/mysql
 
 # Full example
-./dbexp.sh \
+dbexp \
   -h 127.0.0.1 \
   -P 3313 \
   -u root \
@@ -224,13 +233,15 @@ When the destination is an S3 path, the file is dumped locally to a temp file fi
   -d contentdb \
   -o ./backups \
   -s jobs,clients \
-  -x model_activities,%temp_% \
+  -x model_activities,temp_% \
   -z
 ```
 
 ---
 
-## dbimp.sh — Import
+## dbimp — Import
+
+Imports a `.sql` or `.sql.gz` file into a MySQL database. Automatically downloads from S3 and decompresses if needed.
 
 ### Options
 
@@ -246,36 +257,36 @@ When the destination is an S3 path, the file is dumped locally to a temp file fi
 
 ### Auto-detection
 
-The script automatically detects and handles the input file:
+The script inspects the input path and handles everything automatically:
 
 | Condition | Action |
 |---|---|
-| Path starts with `s3://` | Downloads the file from S3 using the `aws` CLI |
+| Path starts with `s3://` | Downloads from S3 using the `aws` CLI |
 | Filename ends with `.gz` | Decompresses with `gunzip` before import |
 | Both | Downloads from S3, then decompresses |
 
-Temp files are always cleaned up on exit, even if the script fails.
+Temp files are always cleaned up on exit, even if the script fails mid-way.
 
 ### Examples
 
 ```sh
 # Local plain SQL
-./dbimp.sh -d mydb -i /backups/mydb_20260426.sql
+dbimp -d mydb -i /backups/mydb_20260426.sql
 
 # Local compressed
-./dbimp.sh -d mydb -i /backups/mydb_20260426.sql.gz
+dbimp -d mydb -i /backups/mydb_20260426.sql.gz
 
-# Auto-create database if it doesn't exist
-./dbimp.sh -d newdb -i /backups/mydb_20260426.sql.gz -c
+# Auto-create the database if it doesn't exist
+dbimp -d newdb -i /backups/mydb_20260426.sql.gz -c
 
-# From S3 (plain)
-./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
+# From S3 — plain
+dbimp -d mydb -i s3://my-bucket/backups/mydb_20260426.sql
 
-# From S3 (compressed) — download + decompress + import, fully automatic
-./dbimp.sh -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
+# From S3 — compressed (download + decompress + import, fully automatic)
+dbimp -d mydb -i s3://my-bucket/backups/mydb_20260426.sql.gz
 
 # Full example
-./dbimp.sh \
+dbimp \
   -h 127.0.0.1 \
   -P 3313 \
   -u root \
@@ -289,7 +300,35 @@ Temp files are always cleaned up on exit, even if the script fails.
 
 ## Tips
 
-- Omit `-p` to be prompted for the password securely (it won't appear in shell history).
-- Use `-z` with S3 uploads to reduce transfer size significantly.
-- The `-x` flag is useful for skipping large log or activity tables that don't need to be transferred.
-- The `-s` flag is useful for preserving table schemas in the target DB without copying data (e.g. empty staging tables).
+- **Omit `-p`** to be prompted for the password securely — it won't appear in shell history.
+- **Pair `DB_EXP_FILENAME` with `DB_IMP_INPUT`** to always export and import the same fixed filename (e.g. `contentdb_latest.sql.gz`) — useful for dev environment syncing.
+- **Use `-z` with S3** to reduce transfer size and storage costs significantly.
+- **Use `-x`** to skip large log, audit, or activity tables that don't need to be transferred between environments.
+- **Use `-s`** to preserve table schemas in the target DB without copying data — useful for empty staging tables.
+- **Use `-c`** when importing into a fresh environment where the database hasn't been created yet.
+
+---
+
+## License
+
+MIT License
+
+Copyright (c) 2026 Hoang Nguyen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
