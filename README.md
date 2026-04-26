@@ -47,7 +47,7 @@
 #### Import
 
 ```sh
-./dbexp.sh \
+./dbimp.sh \
   -h 127.0.0.1 \
   -P 3313 \
   -u root \
