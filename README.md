@@ -50,5 +50,5 @@
 #### Import
 
 ```sh
-mysql -h 127.0.0.1 -P 3313 -u root -ptest testdb3 < ./backups/contentdb3.sql
+mysql -h 127.0.0.1 -P 3313 -u root -ptest testdb4 < ./backups/contentdb3.sql
 ```
