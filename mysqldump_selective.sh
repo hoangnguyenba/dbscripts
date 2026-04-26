@@ -13,14 +13,17 @@
 #   -p, --password    MySQL password       (default: prompt)
 #   -d, --database    Database name        (required)
 #   -o, --output      Output file          (default: backup_TIMESTAMP.sql)
-#   -s, --schema-only Tables for schema only, comma-separated (e.g. logs,sessions)
-#   -x, --skip        Tables to skip entirely, comma-separated (e.g. tmp,debug)
+#   -s, --schema-only Tables for schema only, comma-separated (e.g. logs,sessions,temp_%)
+#   -x, --skip        Tables to skip entirely, comma-separated (e.g. tmp,debug,cache_%)
 #   --help            Show this help message
+#
+# Note: Use % as wildcard in table names (e.g. temp_% matches temp_users, temp_logs, etc.)
 #
 # Examples:
 #   ./mysqldump_selective.sh -d mydb
 #   ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
 #   ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
+#   ./mysqldump_selective.sh -d mydb -s "temp_%" -x "cache_%,debug_%"
 #   ./mysqldump_selective.sh -d mydb -o /backups/mydb.sql -p secret
 # =============================================================================
 
@@ -63,14 +66,18 @@ ${CYAN}Options:${NC}
   -p, --password     MySQL password       (default: prompt)
   -d, --database     Database name        ${RED}(required)${NC}
   -o, --output       Output file          (default: backup_TIMESTAMP.sql)
-  -s, --schema-only  Tables for schema only, comma-separated
-  -x, --skip         Tables to skip entirely, comma-separated
+  -s, --schema-only  Tables for schema only, comma-separated (supports % wildcard)
+  -x, --skip         Tables to skip entirely, comma-separated (supports % wildcard)
       --help         Show this help message
+
+${CYAN}Wildcard:${NC}
+  Use % to match multiple tables by pattern, e.g. temp_% matches temp_users, temp_logs, etc.
 
 ${CYAN}Examples:${NC}
   ./mysqldump_selective.sh -d mydb
   ./mysqldump_selective.sh -d mydb -u admin -h db.example.com
   ./mysqldump_selective.sh -d mydb -s logs,sessions -x tmp,debug
+  ./mysqldump_selective.sh -d mydb -s "temp_%" -x "cache_%,debug_%"
   ./mysqldump_selective.sh -d mydb -o /backups/mydb.sql -p secret
 "
   exit 0
@@ -141,8 +148,43 @@ mysql "${MYSQL_ARGS[@]}" -e "USE $DB_NAME;" 2>/dev/null \
 log "Connection OK."
 
 # -----------------------------------------------------------------------------
+# RESOLVE PATTERNS — expand any entry containing % into actual table names
+# -----------------------------------------------------------------------------
+resolve_patterns() {
+  local -n input_arr=$1   # input array (passed by name)
+  local -a resolved=()
+
+  for entry in "${input_arr[@]}"; do
+    if [[ "$entry" == *%* ]]; then
+      # Pattern: query information_schema for matching tables
+      mapfile -t matched < <(mysql "${MYSQL_ARGS[@]}" -N -e \
+        "SELECT table_name FROM information_schema.tables
+         WHERE table_schema = '$DB_NAME'
+         AND table_name LIKE '$entry';")
+
+      if [[ ${#matched[@]} -eq 0 ]]; then
+        warn "Pattern '$entry' matched no tables — skipping."
+      else
+        log "Pattern '$entry' matched: ${matched[*]}"
+        resolved+=("${matched[@]}")
+      fi
+    else
+      # Exact name — use as-is
+      resolved+=("$entry")
+    fi
+  done
+
+  # Write resolved list back to the caller's array
+  input_arr=("${resolved[@]}")
+}
+
+# -----------------------------------------------------------------------------
 # BUILD --ignore-table FLAGS
 # -----------------------------------------------------------------------------
+log "Resolving table patterns..."
+[[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]] && resolve_patterns SCHEMA_ONLY_TABLES
+[[ ${#SKIP_TABLES[@]}        -gt 0 ]] && resolve_patterns SKIP_TABLES
+
 IGNORE_FLAGS=()
 
 for tbl in "${SCHEMA_ONLY_TABLES[@]}"; do
