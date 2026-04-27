@@ -29,6 +29,7 @@
 #   - Use % as wildcard in table names (e.g. temp_% matches temp_users, temp_logs, etc.)
 #   - If -o is an S3 path, the aws CLI must be installed and configured
 #   - -f and -o are combined: final destination = <o>/<filename>
+#   - Views are automatically detected and skipped (avoids SHOW VIEW privilege errors on RDS)
 #
 # Examples:
 #   ./dbexp.sh -d mydb
@@ -285,7 +286,8 @@ resolve_patterns() {
       mapfile -t matched < <(mysql "${MYSQL_ARGS[@]}" -N -e \
         "SELECT table_name FROM information_schema.tables
          WHERE table_schema = '$DB_NAME'
-         AND table_name LIKE '$entry';")
+         AND table_type = 'BASE TABLE'
+         AND table_name LIKE '$entry';" 2>/dev/null)
 
       if [[ ${#matched[@]} -eq 0 ]]; then
         warn "Pattern '$entry' matched no tables — skipping."
@@ -317,15 +319,37 @@ for tbl in "${SKIP_TABLES[@]}"; do
 done
 
 # -----------------------------------------------------------------------------
+# AUTO-DETECT AND SKIP VIEWS
+# Avoids "SHOW VIEW command denied" errors on RDS where the user lacks
+# the SHOW VIEW privilege. Views are excluded from both dump passes.
+# -----------------------------------------------------------------------------
+log "Detecting views to exclude..."
+mapfile -t VIEWS < <(mysql "${MYSQL_ARGS[@]}" -N -e \
+  "SELECT table_name FROM information_schema.tables
+   WHERE table_schema = '$DB_NAME'
+   AND table_type = 'VIEW';" 2>/dev/null)
+
+if [[ ${#VIEWS[@]} -gt 0 ]]; then
+  warn "Skipping ${#VIEWS[@]} view(s): ${VIEWS[*]}"
+  for v in "${VIEWS[@]}"; do
+    IGNORE_FLAGS+=(--ignore-table="$DB_NAME.$v")
+  done
+else
+  log "No views found."
+fi
+
+# -----------------------------------------------------------------------------
 # DUMP — use a temp .sql file, then compress/move into final destination
 # -----------------------------------------------------------------------------
 TEMP_SQL="$(mktemp /tmp/dbexp_XXXXXX.sql)"
 
-# PASS 1: Full dump (schema + data), excluding ignored tables
+# PASS 1: Full dump (schema + data), excluding ignored tables and views
 log "Pass 1: Dumping full database (schema + data)..."
 mysqldump "${MYSQL_ARGS[@]}" \
   --single-transaction \
   --no-tablespaces \
+  --set-gtid-purged=OFF \
+  --skip-lock-tables \
   --routines \
   --triggers \
   --events \
@@ -341,6 +365,8 @@ if [[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]]; then
     --no-data \
     --single-transaction \
     --no-tablespaces \
+    --set-gtid-purged=OFF \
+    --skip-lock-tables \
     "$DB_NAME" \
     "${SCHEMA_ONLY_TABLES[@]}" \
     >> "$TEMP_SQL"
@@ -393,3 +419,4 @@ else
 fi
 [[ ${#SKIP_TABLES[@]}        -gt 0 ]] && warn "Fully skipped (no schema, no data): ${SKIP_TABLES[*]}"
 [[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]] && warn "Schema-only exported (no data):     ${SCHEMA_ONLY_TABLES[*]}"
+[[ ${#VIEWS[@]}              -gt 0 ]] && warn "Views skipped (no SHOW VIEW privilege): ${VIEWS[*]}"
