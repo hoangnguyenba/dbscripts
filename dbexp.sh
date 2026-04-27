@@ -325,6 +325,7 @@ TEMP_SQL="$(mktemp /tmp/dbexp_XXXXXX.sql)"
 log "Pass 1: Dumping full database (schema + data)..."
 mysqldump "${MYSQL_ARGS[@]}" \
   --single-transaction \
+  --no-tablespaces \
   --routines \
   --triggers \
   --events \
@@ -339,6 +340,7 @@ if [[ ${#SCHEMA_ONLY_TABLES[@]} -gt 0 ]]; then
   mysqldump "${MYSQL_ARGS[@]}" \
     --no-data \
     --single-transaction \
+    --no-tablespaces \
     "$DB_NAME" \
     "${SCHEMA_ONLY_TABLES[@]}" \
     >> "$TEMP_SQL"
