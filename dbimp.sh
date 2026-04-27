@@ -225,14 +225,17 @@ if [[ "$INPUT" =~ ^s3:// ]]; then
     INPUT="$S3_FILE"
   fi
 
-  # Download from S3
+  # Download from S3 — save to current directory so it persists on failure.
+  # Re-running the script with -i pointing to the local file skips the download entirely.
   FILENAME="$(basename "$S3_FILE")"
-  LOCAL_FILE="$(mktemp /tmp/dbimp_XXXXXX_${FILENAME})"
-  TEMP_FILES+=("$LOCAL_FILE")
+  LOCAL_FILE="$(pwd)/$FILENAME"
   log "Downloading from S3: ${CYAN}$S3_FILE${NC}..."
+  log "Saving to: ${CYAN}$LOCAL_FILE${NC} (kept on failure — re-run with -i $LOCAL_FILE to skip download)"
   aws s3 cp "$S3_FILE" "$LOCAL_FILE" \
     || error "S3 download failed. Check your AWS credentials and the file path."
-  log "Download complete."
+  [[ -f "$LOCAL_FILE" ]] \
+    || error "Download reported success but file not found at: '$LOCAL_FILE'"
+  log "Download complete: $(du -sh "$LOCAL_FILE" | cut -f1)"
 
 else
   # Local path — check if it's a file or directory
