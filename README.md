@@ -5,12 +5,8 @@ A pair of bash scripts for exporting and importing MySQL databases with a clean 
 **Features:**
 
 - Selective table export — schema-only or skip entirely, with `%` wildcard pattern support
-- gzip compression with correct inner filename
-- Local and S3 storage (auto-detects from path)
 - Auto-download from S3 and auto-decompress on import
-- Auto-create database on import if it doesn't exist
-- `.env` file support — works out of the box in Laravel, Docker, and similar projects
-- CLI arguments always take priority over `.env` values
+- `.env` file support — works out of the box in Laravel, and similar projects
 
 ---
 
@@ -22,7 +18,6 @@ A pair of bash scripts for exporting and importing MySQL databases with a clean 
 - [dbexp — Export](#dbexp--export)
 - [dbimp — Import](#dbimp--import)
 - [Tips](#tips)
-- [License](#license)
 
 ---
 
@@ -39,16 +34,10 @@ A pair of bash scripts for exporting and importing MySQL databases with a clean 
 
 ### One-liner (recommended)
 
-Run this in your terminal to download and install both scripts to `/usr/local/bin`:
+Run this in your terminal to download and install/update both scripts to `/usr/local/bin`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
-```
-
-Or with `wget`:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
 ```
 
 Once installed, the scripts are available system-wide as `dbexp` and `dbimp` (no `.sh` extension needed):
@@ -73,16 +62,6 @@ chmod +x ~/projects/dbscripts/dbimp.sh
 # Add to PATH in your shell config
 echo 'export PATH="$HOME/projects/dbscripts:$PATH"' >> ~/.bashrc
 source ~/.bashrc
-```
-
-> **Note:** With manual installation, any edits to the scripts take effect immediately — no re-installation needed.
-
-### Updating
-
-Re-run the one-liner at any time to pull the latest version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoangnguyenba/dbscripts/main/install.sh | bash
 ```
 
 ---
