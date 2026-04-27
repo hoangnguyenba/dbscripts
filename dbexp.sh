@@ -344,15 +344,18 @@ fi
 TEMP_SQL="$(mktemp /tmp/dbexp_XXXXXX.sql)"
 
 # PASS 1: Full dump (schema + data), excluding ignored tables and views
+# --skip-routines : avoids "insufficient privileges to SHOW CREATE PROCEDURE" on RDS
+# --skip-triggers : avoids similar privilege errors for triggers
+# --skip-events   : avoids similar privilege errors for events
 log "Pass 1: Dumping full database (schema + data)..."
 mysqldump "${MYSQL_ARGS[@]}" \
   --single-transaction \
   --no-tablespaces \
   --set-gtid-purged=OFF \
   --skip-lock-tables \
-  --routines \
-  --triggers \
-  --events \
+  --skip-routines \
+  --skip-triggers \
+  --skip-events \
   "${IGNORE_FLAGS[@]}" \
   "$DB_NAME" \
   > "$TEMP_SQL"
